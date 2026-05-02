@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PICO Health: Solo Random Adventure</title>
+    <style>
+        :root {
+            --pico-bg: #f5f5f5;
+            --pico-dark: #333;
+            --pico-hero: #4ea5ff;
+            --pico-door: #ff7bac;
+        }
+
+        body {
+            font-family: 'Courier New', monospace;
+            background-color: var(--pico-bg);
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        #ui {
+            text-align: center;
+            width: 800px;
+            margin-bottom: 10px;
+        }
+
+        #question-box {
+            background: var(--pico-dark);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 18px;
+            box-shadow: 0 4px 0px #000;
+            min-height: 25px;
+        }
+
+        canvas {
+            background-color: white;
+            border: 6px solid var(--pico-dark);
+            box-shadow: 10px 10px 0px rgba(0,0,0,0.05);
+        }
+    </style>
+</head>
+<body>
+
+<div id="ui">
+    <div id="question-box">按任意鍵開始遊戲</div>
+    <p>控制：← → 移動 ｜ ↑ 跳躍 ｜ 找出正確答案並前往終點</p>
+</div>
+
+<canvas id="game-canvas" width="800" height="500"></canvas>
+
+<script>
+    const canvas = document.getElementById('game-canvas');
+    const ctx = canvas.getContext('2d');
+
+    const levels = [
+        { q: "成人每日建議飲水量是體重(kg)乘以多少？", options: ["10ml", "20ml", "30-35ml", "100ml"], correct: 2 },
+        { q: "下列哪種運動最能增進心肺功能？", options: ["看電視", "慢跑", "睡午覺", "玩手機"], correct: 1 },
+        { q: "洗手步驟「內外夾弓大立腕」，最後是洗哪裡？", options: ["指甲", "手指", "手掌", "手腕"], correct: 3 },
+        { q: "為了眼睛健康，用眼30分鐘應休息多久？", options: ["1分鐘", "10分鐘", "30分鐘", "不必休息"], correct: 1 }
+    ];
+
+    let currentLevel = 0;
+    let doorOpen = false;
+    let gameStarted = false;
+    let platforms = [];
+    let doorPos = { x: 0, y: 0 };
+    
+    // 玩家對象
+    const player = {
+        x: 0,
+        y: 0,
+        vx: 0,
+        vy: 0,
+        size: 30,
+        onGround: false,
+        speed: 5,
+        jumpPower: -12
+    };
+
+    const keys = {};
+
+    function generateMap() {
+        platforms = [];
+        // 隨機三層平台
+        // 第一層：起點
+        platforms.push({ x: 50, y: 150, w: 200 + Math.random() * 100, h: 15 });
+        
+        // 第二層：中間平台
+        const midW = 250 + Math.random() * 200;
+        platforms.push({ x: Math.random() * (800 - midW), y: 300, w: midW, h: 15 });
+        
+        // 第三層：底層/終點
+        const botW = 400 + Math.random() * 200;
+        const botX = Math.random() * (800 - botW);
+        platforms.push({ x: botX, y: 450, w: botW, h: 15 });
+
+        // 隨機設置門的位置
+        doorPos.x = botX + (Math.random() > 0.5 ? 20 : botW - 60);
+        doorPos.y = 450 - 70;
+
+        // 玩家初始位置在第一層
+        player.x = platforms[0].x + 20;
+        player.y = platforms[0].y - 40;
+        player.vx = 0;
+        player.vy = 0;
+    }
+
+    function initLevel() {
+        doorOpen = false;
+        generateMap();
+        document.getElementById('question-box').innerText = levels[currentLevel].q;
+    }
+
+    window.addEventListener('keydown', e => {
+        keys[e.code] = true;
+        if (!gameStarted) {
+            gameStarted = true;
+            initLevel();
+            requestAnimationFrame(gameLoop);
+        }
+    });
+    window.addEventListener('keyup', e => keys[e.code] = false);
+
+    function update() {
+        // 左右移動控制
+        if (keys['ArrowLeft']) player.vx = -player.speed;
+        else if (keys['ArrowRight']) player.vx = player.speed;
+        else player.vx *= 0.8;
+
+        // 跳躍控制
+        if (keys['ArrowUp'] && player.onGround) {
+            player.vy = player.jumpPower;
+            player.onGround = false;
+        }
+
+        // 重力與運動
+        player.vy += 0.6;
+        player.x += player.vx;
+        player.y += player.vy;
+        player.onGround = false;
+
+        // 平台碰撞檢測
+        platforms.forEach(p => {
+            if (player.vx >= 0 && player.x + player.size > p.x && 
+                player.x < p.x + p.w &&
+                player.y + player.size > p.y && 
+                player.y + player.size < p.y + p.h + 10 && 
+                player.vy >= 0) {
+                player.y = p.y - player.size;
+                player.vy = 0;
+                player.onGround = true;
+            }
+        });
+
+        // 答案區觸碰檢測
+        const data = levels[currentLevel];
+        data.options.forEach((opt, i) => {
+            const optX = 100 + i * 180;
+            const optY = 480;
+            if (Math.abs(player.x - optX) < 40 && Math.abs(player.y - optY) < 40) {
+                if (i === data.correct && !doorOpen) {
+                    doorOpen = true;
+                    document.getElementById('question-box').innerText = "答對了！大門已開啟，請前往傳送門！";
+                }
+            }
+        });
+
+        // 掉落與邊界檢查
+        if (player.y > 500) {
+            alert("不小心掉下去了！重新開始此關");
+            initLevel();
+        }
+        if (player.x < 0) player.x = 0;
+        if (player.x > 800 - player.size) player.x = 800 - player.size;
+
+        // 過關檢測
+        if (doorOpen && Math.abs(player.x - doorPos.x) < 30 && player.y > 350) {
+            currentLevel++;
+            if (currentLevel < levels.length) {
+                initLevel();
+            } else {
+                alert("恭喜破關！你已經掌握了所有衛教知識！");
+                currentLevel = 0;
+                initLevel();
+            }
+        }
+    }
+
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // 畫平台
+        ctx.fillStyle = "#333";
+        platforms.forEach(p => {
+            ctx.fillRect(p.x, p.y, p.w, p.h);
+        });
+
+        // 畫答案選項 (在底部)
+        const data = levels[currentLevel];
+        data.options.forEach((opt, i) => {
+            ctx.fillStyle = "#888";
+            ctx.font = "14px Arial";
+            ctx.fillText(opt, 100 + i * 180, 500);
+            ctx.beginPath();
+            ctx.arc(115 + i * 180, 480, 5, 0, Math.PI * 2);
+            ctx.fill();
+        });
+
+        // 畫門
+        ctx.fillStyle = doorOpen ? "#ff7bac" : "#ccc";
+        ctx.fillRect(doorPos.x, doorPos.y, 40, 70);
+        ctx.strokeRect(doorPos.x, doorPos.y, 40, 70);
+        ctx.fillStyle = "#333";
+        ctx.font = "bold 12px Arial";
+        ctx.fillText(doorOpen ? "GO!" : "LOCK", doorPos.x + 4, doorPos.y + 35);
+
+        // 畫玩家
+        ctx.fillStyle = "#4ea5ff";
+        ctx.fillRect(player.x, player.y, player.size, player.size);
+        ctx.strokeRect(player.x, player.y, player.size, player.size);
+        // 眼睛
+        ctx.fillStyle = "black";
+        ctx.fillRect(player.x + 6, player.y + 8, 4, 4);
+        ctx.fillRect(player.x + 20, player.y + 8, 4, 4);
+    }
+
+    function gameLoop() {
+        update();
+        draw();
+        requestAnimationFrame(gameLoop);
+    }
+</script>
+
+</body>
+</html>
